@@ -208,17 +208,17 @@ It will show something like `/Users/yourname/Documents/notion_reminders_sync`. Y
 crontab -e
 ```
 
-This opens a text editor in Terminal.
-
-- If you see a question about which editor to use, type `nano` and press Enter (it's the easiest).
+This opens a text editor in Terminal called **vi** (or vim). It looks different from normal text editing, but follow these steps carefully.
 
 ### Step 3: Add the Sync Schedule
 
-You'll see an empty file (or existing cron jobs). Add this line at the bottom, **replacing `/Users/yourname/Documents/notion_reminders_sync` with your actual path**:
+1. Press **`i`** to enter "insert mode" (you should see `-- INSERT --` at the bottom)
 
-```
-*/5 * * * * cd /Users/yourname/Documents/notion_reminders_sync && ./venv/bin/python notion_reminders_sync.py >> sync.log 2>&1
-```
+2. Type or paste this line, **replacing the path with your actual path** from Step 1:
+
+   ```
+   */5 * * * * cd /Users/yourname/Documents/notion_reminders_sync && ./venv/bin/python notion_reminders_sync.py >> sync.log 2>&1
+   ```
 
 **What this means:**
 - `*/5 * * * *` = Run every 5 minutes
@@ -228,12 +228,12 @@ You'll see an empty file (or existing cron jobs). Add this line at the bottom, *
 
 ### Step 4: Save and Exit
 
-If you're in **nano** (the default editor):
-1. Press `Ctrl + O` (that's the letter O, not zero) to save
-2. Press `Enter` to confirm the filename
-3. Press `Ctrl + X` to exit
+1. Press **`Esc`** to exit insert mode (the `-- INSERT --` at the bottom should disappear)
+2. Type **`:wq`** (colon, then w, then q) and press **`Enter`**
 
 You should see: `crontab: installing new crontab`
+
+> **Stuck in vi?** If something goes wrong, press `Esc` a few times, then type `:q!` and press `Enter` to quit without saving. Then try `crontab -e` again.
 
 ### Step 5: Verify It's Working
 
