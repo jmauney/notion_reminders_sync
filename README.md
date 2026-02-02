@@ -120,7 +120,11 @@ pip install -r requirements.txt
 
 This installs the required packages. You'll see some output - wait for it to finish.
 
-### Step 5: Create a Notion Integration
+### Step 5: Get a Notion Integration
+
+> **Note**: Creating a Notion integration requires **workspace admin** permissions. If you're not an admin, ask your workspace owner to create the integration and share the API key with you.
+
+#### If you're a workspace admin:
 
 1. Go to [https://www.notion.so/my-integrations](https://www.notion.so/my-integrations)
 2. Click **"+ New integration"**
@@ -135,6 +139,13 @@ Now connect it to your database:
 2. Click the **`···`** menu in the top right
 3. Scroll to **Connections** and click **"+ Add connections"**
 4. Find and select your integration
+
+#### If you're not a workspace admin:
+
+Ask your workspace admin to:
+1. Create an integration (steps above)
+2. Connect it to the task database
+3. Share the API key with you securely (not via email or chat - use a password manager or in person)
 
 ### Step 6: Configure the Sync
 
