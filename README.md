@@ -87,10 +87,9 @@ The easiest way is using Homebrew (a package manager for macOS):
 
 ### Step 3: Download This Project
 
-1. **Choose where to put it**. We'll use a folder called "Code" in your home directory:
+1. **Navigate to your Documents folder** (or another folder of your choice):
    ```bash
-   mkdir -p ~/Code
-   cd ~/Code
+   cd ~/Documents
    ```
 
 2. **Download the project**:
@@ -98,6 +97,8 @@ The easiest way is using Homebrew (a package manager for macOS):
    git clone https://github.com/jmauney/notion_reminders_sync.git
    cd notion_reminders_sync
    ```
+
+> **Note**: You can install this anywhere you like. Just remember the location - you'll need it later for setting up automatic sync.
 
 ### Step 4: Set Up Python Environment
 
@@ -186,7 +187,7 @@ Run this command and copy the output:
 echo "$(pwd)"
 ```
 
-It will show something like `/Users/yourname/Code/notion_reminders_sync`. You'll need this path.
+It will show something like `/Users/yourname/Documents/notion_reminders_sync`. You'll need this path.
 
 ### Step 2: Open the Cron Editor
 
@@ -200,10 +201,10 @@ This opens a text editor in Terminal.
 
 ### Step 3: Add the Sync Schedule
 
-You'll see an empty file (or existing cron jobs). Add this line at the bottom, **replacing `/Users/yourname/Code/notion_reminders_sync` with your actual path**:
+You'll see an empty file (or existing cron jobs). Add this line at the bottom, **replacing `/Users/yourname/Documents/notion_reminders_sync` with your actual path**:
 
 ```
-*/5 * * * * cd /Users/yourname/Code/notion_reminders_sync && ./venv/bin/python notion_reminders_sync.py >> sync.log 2>&1
+*/5 * * * * cd /Users/yourname/Documents/notion_reminders_sync && ./venv/bin/python notion_reminders_sync.py >> sync.log 2>&1
 ```
 
 **What this means:**
@@ -226,7 +227,7 @@ You should see: `crontab: installing new crontab`
 Wait 5 minutes, then check the log file:
 
 ```bash
-cat ~/Code/notion_reminders_sync/sync.log
+cat ~/Documents/notion_reminders_sync/sync.log
 ```
 
 You should see sync output with timestamps.
@@ -376,7 +377,7 @@ You only need to include settings that differ from the defaults.
 ### "Permission denied" when running the script
 Make sure you activated the virtual environment:
 ```bash
-cd ~/Code/notion_reminders_sync
+cd ~/Documents/notion_reminders_sync
 source venv/bin/activate
 ```
 
