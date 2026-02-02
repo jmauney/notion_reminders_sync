@@ -763,6 +763,7 @@ class RemindersClient:
         title: Optional[str] = None,
         due_date: Optional[datetime] = None,
         clear_due_date: bool = False,
+        notes: Optional[str] = None,
     ) -> bool:
         """Update an existing reminder."""
         ek_reminder = reminder.ek_reminder
@@ -774,6 +775,9 @@ class RemindersClient:
             ek_reminder.setDueDateComponents_(None)
         elif due_date is not None:
             self._set_due_date(ek_reminder, due_date)
+
+        if notes is not None:
+            ek_reminder.setNotes_(notes)
 
         error = None
         success = self.store.saveReminder_commit_error_(ek_reminder, True, error)
@@ -812,6 +816,53 @@ class RemindersClient:
         if not isinstance(ek_reminder, EventKit.EKReminder):
             return None
         return self._parse_reminder(ek_reminder)
+
+
+def extract_customer_from_notes(notes: Optional[str]) -> Optional[str]:
+    """Extract customer name from notes (format: 'Customer: Name')."""
+    if not notes:
+        return None
+    for line in notes.split('\n'):
+        if line.startswith('Customer: '):
+            return line[len('Customer: '):].strip()
+    return None
+
+
+def build_updated_notes(
+    current_notes: Optional[str],
+    url: Optional[str],
+    new_customer: Optional[str],
+) -> str:
+    """
+    Build updated notes preserving URL at top and updating customer line.
+
+    Notes format:
+    - URL (first line, if present)
+    - Customer: Name (if present)
+    - Any other notes
+    """
+    parts = []
+    other_lines = []
+
+    if current_notes:
+        for line in current_notes.split('\n'):
+            # Skip existing URL line and customer line
+            if line.startswith('https://') or line.startswith('http://'):
+                continue
+            if line.startswith('Customer: '):
+                continue
+            if line.strip():  # Keep non-empty lines
+                other_lines.append(line)
+
+    # Build new notes in order: URL, Customer, other
+    if url:
+        parts.append(url)
+    if new_customer:
+        parts.append(f'Customer: {new_customer}')
+    if other_lines:
+        parts.extend(other_lines)
+
+    return '\n\n'.join(parts) if parts else ''
 
 
 class NotionRemindersSync:
@@ -1068,6 +1119,7 @@ class NotionRemindersSync:
         Rules:
         - Reminders is primary: always push Reminders changes to Notion
         - Notion only updates Reminders if Notion is newer
+        - Customer always syncs from Notion -> Reminders (one-way)
         """
         for notion_id, reminder in reminders_by_notion_id.items():
             if reminder.completed:
@@ -1088,7 +1140,12 @@ class NotionRemindersSync:
             reminder_due = reminder.due_date.date() if reminder.due_date else None
             due_changed = notion_due != reminder_due
 
-            if not title_changed and not due_changed:
+            # Compare customer (always sync from Notion -> Reminders)
+            current_customer = extract_customer_from_notes(reminder.notes)
+            notion_customer = notion_task.customer_name
+            customer_changed = current_customer != notion_customer
+
+            if not title_changed and not due_changed and not customer_changed:
                 continue  # No changes needed
 
             # Determine which direction to sync
@@ -1120,17 +1177,35 @@ class NotionRemindersSync:
                             notion_task.page_id, reminder.due_date
                         )
                     self.stats["notion_tasks_updated"] += 1
+
+                # Customer always syncs from Notion -> Reminders even if Reminders is newer
+                if customer_changed:
+                    print(f"\n  Updating Reminder customer: '{notion_customer}'")
+                    print(f"    Was: '{current_customer}'")
+                    if not self.dry_run:
+                        new_notes = build_updated_notes(
+                            reminder.notes, reminder.url, notion_customer
+                        )
+                        self.reminders.update_reminder(reminder, notes=new_notes)
+                    self.stats["reminders_updated"] += 1
             else:
                 # Push Notion -> Reminders (Notion is newer)
-                if title_changed or due_changed:
+                needs_update = title_changed or due_changed or customer_changed
+                if needs_update:
                     print(f"\n  Updating Reminder (Notion is newer): {notion_task.title}")
 
                     if not self.dry_run:
+                        new_notes = None
+                        if customer_changed:
+                            new_notes = build_updated_notes(
+                                reminder.notes, reminder.url, notion_customer
+                            )
                         self.reminders.update_reminder(
                             reminder,
                             title=notion_task.title if title_changed else None,
                             due_date=notion_task.due_date if due_changed else None,
                             clear_due_date=due_changed and notion_task.due_date is None,
+                            notes=new_notes,
                         )
                     self.stats["reminders_updated"] += 1
 
