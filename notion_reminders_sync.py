@@ -7,12 +7,12 @@ Uses PyObjC/EventKit for native Reminders access.
 
 Sync Logic:
 - Query Notion for tasks assigned to me, not Done, Type ≠ Onboarding
-- Match to Reminders in "Work" list by Notion page ID stored in URL field
-- Create missing reminders with Notion tag, URL, and customer name in notes
+- Match to Reminders in configured list (default "Notion") by Notion page ID stored in URL field
+- Create missing reminders with clickable URL in notes and customer name
 - Update due dates and titles using last-modified timestamps
   (Reminders is primary—always push to Notion; Notion only updates Reminders if newer)
 - Mark Notion tasks Done when Reminders are completed
-- Create Notion tasks from new Reminders tagged "Notion" with no URL
+- Create Notion tasks from new Reminders in the sync list that have no URL
 
 Configuration:
     Create a .env file or config.json in the same directory, or set environment variables.
@@ -65,8 +65,7 @@ def load_config() -> dict:
     - NOTION_USER_ID: Your Notion user ID (for filtering tasks assigned to you)
 
     Optional config keys:
-    - REMINDERS_LIST_NAME: Name of the Reminders list (default: "Work")
-    - NOTION_TAG: Tag added to reminders (default: "#Notion")
+    - REMINDERS_LIST_NAME: Name of the Reminders list to sync (default: "Notion")
     """
     script_dir = Path(__file__).parent.resolve()
 
@@ -74,8 +73,7 @@ def load_config() -> dict:
         "NOTION_API_KEY": None,
         "NOTION_DATABASE_ID": None,
         "NOTION_USER_ID": None,
-        "REMINDERS_LIST_NAME": "Work",
-        "NOTION_TAG": "#Notion",
+        "REMINDERS_LIST_NAME": "Notion",
         # Notion property names (customizable)
         "PROP_TITLE": "Request",
         "PROP_ASSIGNEE": "Assignee",
@@ -145,7 +143,6 @@ NOTION_API_KEY = CONFIG["NOTION_API_KEY"]
 NOTION_DATABASE_ID = CONFIG["NOTION_DATABASE_ID"]
 NOTION_USER_ID = CONFIG["NOTION_USER_ID"]
 REMINDERS_LIST_NAME = CONFIG["REMINDERS_LIST_NAME"]
-NOTION_TAG = CONFIG["NOTION_TAG"]
 
 # Notion property names
 PROP_TITLE = CONFIG["PROP_TITLE"]
@@ -231,29 +228,11 @@ class Reminder:
         return match.group(1) if match else None
 
     @property
-    def has_notion_tag(self) -> bool:
-        """Check if reminder has the Notion tag in title or notes.
-
-        Note: EventKit doesn't expose actual Reminders tags, so we check
-        for #Notion in the title or notes instead.
-        """
-        tag_pattern = NOTION_TAG.lower()  # e.g., "#notion"
-        # Also check without the # in case they wrote just "Notion"
-        tag_word = NOTION_TAG.lstrip("#").lower()  # e.g., "notion"
-
-        # Check title
-        if self.title:
-            title_lower = self.title.lower()
-            if tag_pattern in title_lower or f"#{tag_word}" in title_lower:
-                return True
-
-        # Check notes
-        if self.notes:
-            notes_lower = self.notes.lower()
-            if tag_pattern in notes_lower or f"#{tag_word}" in notes_lower:
-                return True
-
-        return False
+    def has_notion_url(self) -> bool:
+        """Check if reminder has a Notion URL (indicating it's synced with Notion)."""
+        if not self.url:
+            return False
+        return 'notion.so' in self.url.lower()
 
 
 class NotionClient:
@@ -728,25 +707,29 @@ class RemindersClient:
         due_date: Optional[datetime] = None,
         notes: Optional[str] = None,
         url: Optional[str] = None,
-        add_notion_tag: bool = True,
     ) -> Optional[Reminder]:
-        """Create a new reminder in the Work list."""
+        """Create a new reminder in the sync list."""
         work_list = self.get_work_list()
         if not work_list:
             return None
 
         reminder = EventKit.EKReminder.reminderWithEventStore_(self.store)
-
-        # Add #Notion tag to title if requested (this is how we identify synced reminders)
-        if add_notion_tag:
-            title = f"{title} {NOTION_TAG}"
-
         reminder.setTitle_(title)
         reminder.setCalendar_(work_list)
 
+        # Build notes with URL at the top (clickable in Reminders UI)
+        # followed by any additional notes (like customer name)
+        notes_parts = []
+        if url:
+            notes_parts.append(url)
         if notes:
-            reminder.setNotes_(notes)
+            notes_parts.append(notes)
 
+        if notes_parts:
+            reminder.setNotes_("\n\n".join(notes_parts))
+
+        # Also store URL in the EventKit URL field for programmatic matching
+        # (this field doesn't display in the UI but is reliable for lookups)
         if url:
             ns_url = Foundation.NSURL.URLWithString_(url)
             reminder.setURL_(ns_url)
@@ -888,8 +871,8 @@ class NotionRemindersSync:
             notion_id = r.notion_page_id
             if notion_id:
                 reminders_by_notion_id[notion_id] = r
-            elif r.has_notion_tag and not r.url and not r.completed:
-                # New reminder tagged for Notion but not yet linked
+            elif not r.url and not r.completed:
+                # New reminder in sync list but not yet linked to Notion
                 unlinked_notion_reminders.append(r)
 
         # Sync operations
@@ -1053,8 +1036,8 @@ class NotionRemindersSync:
             if task.page_id in reminders_by_notion_id:
                 continue
 
-            # Put customer name in notes (tag is added automatically via add_notion_tag)
-            notes = f"Customer: {task.customer_name}" if task.customer_name else None
+            # Customer name will be added to notes after the URL
+            customer_note = f"Customer: {task.customer_name}" if task.customer_name else None
 
             print(f"\n  Creating reminder: {task.title}")
             print(f"    Due: {task.due_date.date() if task.due_date else 'None'}")
@@ -1065,9 +1048,8 @@ class NotionRemindersSync:
                 reminder = self.reminders.create_reminder(
                     title=task.title,
                     due_date=task.due_date,
-                    notes=notes,
+                    notes=customer_note,
                     url=task.url,
-                    add_notion_tag=True,
                 )
                 if reminder:
                     self.stats["reminders_created"] += 1
@@ -1098,12 +1080,8 @@ class NotionRemindersSync:
             notion_modified = notion_task.last_updated
             reminder_modified = reminder.last_modified
 
-            # Strip #Notion tag from reminder title for comparison and sync
-            clean_reminder_title = re.sub(r'\s*#notion\b\s*', ' ', reminder.title, flags=re.IGNORECASE).strip()
-            clean_reminder_title = ' '.join(clean_reminder_title.split())  # Normalize whitespace
-
-            # Compare titles (using cleaned reminder title)
-            title_changed = clean_reminder_title != notion_task.title
+            # Compare titles directly (no tag stripping needed)
+            title_changed = reminder.title != notion_task.title
 
             # Compare due dates (normalize to date only for comparison)
             notion_due = notion_task.due_date.date() if notion_task.due_date else None
@@ -1126,12 +1104,12 @@ class NotionRemindersSync:
                 reminder_is_newer = reminder_modified >= notion_modified
 
             if reminder_is_newer:
-                # Push Reminders -> Notion (use cleaned title without #Notion tag)
+                # Push Reminders -> Notion
                 if title_changed:
-                    print(f"\n  Updating Notion title: '{clean_reminder_title}'")
+                    print(f"\n  Updating Notion title: '{reminder.title}'")
                     print(f"    Was: '{notion_task.title}'")
                     if not self.dry_run:
-                        self.notion.update_task_title(notion_task.page_id, clean_reminder_title)
+                        self.notion.update_task_title(notion_task.page_id, reminder.title)
                     self.stats["notion_tasks_updated"] += 1
 
                 if due_changed:
@@ -1144,7 +1122,6 @@ class NotionRemindersSync:
                     self.stats["notion_tasks_updated"] += 1
             else:
                 # Push Notion -> Reminders (Notion is newer)
-                # Note: We don't add #Notion tag back - the reminder keeps its existing tag
                 if title_changed or due_changed:
                     print(f"\n  Updating Reminder (Notion is newer): {notion_task.title}")
 
@@ -1182,27 +1159,33 @@ class NotionRemindersSync:
             self.stats["notion_tasks_completed"] += 1
 
     def _create_notion_from_reminders(self, unlinked_reminders: list[Reminder]):
-        """Create Notion tasks from Reminders tagged with #Notion but having no URL."""
+        """Create Notion tasks from Reminders in the sync list that have no URL."""
         for reminder in unlinked_reminders:
-            # Strip the #Notion tag from the title before creating in Notion
-            clean_title = re.sub(r'\s*#notion\b\s*', ' ', reminder.title, flags=re.IGNORECASE).strip()
-            clean_title = ' '.join(clean_title.split())  # Normalize whitespace
-
-            print(f"\n  Creating Notion task from reminder: {clean_title}")
+            print(f"\n  Creating Notion task from reminder: {reminder.title}")
 
             if not self.dry_run:
                 page_id = self.notion.create_task(
                     NOTION_DATABASE_ID,
-                    clean_title,
+                    reminder.title,
                     NOTION_USER_ID,
                     reminder.due_date,
                 )
                 if page_id:
-                    # Update reminder with the Notion URL
+                    # Update reminder with the Notion URL in both places
                     notion_url = f"https://notion.so/{page_id}"
                     ek_reminder = reminder.ek_reminder
+
+                    # Set URL in EventKit field (for programmatic matching)
                     ns_url = Foundation.NSURL.URLWithString_(notion_url)
                     ek_reminder.setURL_(ns_url)
+
+                    # Add URL to notes (for visibility/clickability in Reminders UI)
+                    existing_notes = ek_reminder.notes()
+                    if existing_notes:
+                        new_notes = f"{notion_url}\n\n{existing_notes}"
+                    else:
+                        new_notes = notion_url
+                    ek_reminder.setNotes_(new_notes)
 
                     error = None
                     self.reminders.store.saveReminder_commit_error_(
@@ -1221,9 +1204,10 @@ def cmd_sync(args):
 
 
 def cmd_fix_urls(args):
-    """Fix reminders that have #Notion tag but are missing URLs.
+    """Fix reminders in the sync list that are missing URLs.
 
-    This matches reminders to Notion tasks by title and adds the missing URLs.
+    This matches reminders to Notion tasks by title and adds the missing URLs
+    (both in the EventKit URL field and in the notes for visibility).
     Run this once if you have reminders that were created before URL tracking was added.
     """
     print("=" * 60)
@@ -1242,10 +1226,10 @@ def cmd_fix_urls(args):
     notion_tasks = notion.query_my_tasks(NOTION_DATABASE_ID, NOTION_USER_ID)
     print(f"  Found {len(notion_tasks)} tasks assigned to you\n")
 
-    # Get all reminders with #Notion tag but no URL
-    print("Fetching reminders with #Notion tag but no URL...")
+    # Get all reminders without URLs
+    print(f"Fetching reminders from '{REMINDERS_LIST_NAME}' without URLs...")
     all_reminders = reminders_client.get_all_reminders()
-    missing_url = [r for r in all_reminders if r.has_notion_tag and not r.url and not r.completed]
+    missing_url = [r for r in all_reminders if not r.url and not r.completed]
     print(f"  Found {len(missing_url)} reminders missing URLs\n")
 
     if not missing_url:
@@ -1254,10 +1238,7 @@ def cmd_fix_urls(args):
 
     # Build a lookup by normalized title
     def normalize_title(title: str) -> str:
-        """Normalize title for matching - remove #Notion tag and extra whitespace."""
-        import re
-        # Remove #Notion tag (case insensitive)
-        title = re.sub(r'#notion\b', '', title, flags=re.IGNORECASE)
+        """Normalize title for matching."""
         # Remove extra whitespace
         title = ' '.join(title.split())
         return title.strip().lower()
@@ -1283,13 +1264,25 @@ def cmd_fix_urls(args):
             print(f"    Adding URL: {task.url}")
 
             if not args.dry_run:
-                # Set the URL on the reminder
+                ek_reminder = reminder.ek_reminder
+
+                # Set the URL in EventKit field (for programmatic matching)
                 ns_url = Foundation.NSURL.URLWithString_(task.url)
-                reminder.ek_reminder.setURL_(ns_url)
+                ek_reminder.setURL_(ns_url)
+
+                # Add URL to notes (for visibility in Reminders UI)
+                existing_notes = ek_reminder.notes()
+                if existing_notes:
+                    # Only add if not already there
+                    if task.url not in str(existing_notes):
+                        new_notes = f"{task.url}\n\n{existing_notes}"
+                        ek_reminder.setNotes_(new_notes)
+                else:
+                    ek_reminder.setNotes_(task.url)
 
                 error = None
                 success = reminders_client.store.saveReminder_commit_error_(
-                    reminder.ek_reminder, True, error
+                    ek_reminder, True, error
                 )
                 if success:
                     fixed_count += 1
