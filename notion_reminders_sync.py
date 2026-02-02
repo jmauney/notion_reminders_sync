@@ -76,6 +76,19 @@ def load_config() -> dict:
         "NOTION_USER_ID": None,
         "REMINDERS_LIST_NAME": "Work",
         "NOTION_TAG": "#Notion",
+        # Notion property names (customizable)
+        "PROP_TITLE": "Request",
+        "PROP_ASSIGNEE": "Assignee",
+        "PROP_STATUS": "Status",
+        "PROP_DUE_DATE": "Due date",
+        "PROP_CUSTOMER": "Customer",
+        "PROP_TYPE": "Type",
+        # Status values
+        "STATUS_DONE": "Done",
+        "STATUS_CANCELED": "Canceled",
+        "STATUS_NEW": "New",
+        # Type value to exclude (empty string disables filtering)
+        "TYPE_EXCLUDE": "Onboarding",
     }
 
     # Try config.json first (lowest priority)
@@ -134,6 +147,22 @@ NOTION_USER_ID = CONFIG["NOTION_USER_ID"]
 REMINDERS_LIST_NAME = CONFIG["REMINDERS_LIST_NAME"]
 NOTION_TAG = CONFIG["NOTION_TAG"]
 
+# Notion property names
+PROP_TITLE = CONFIG["PROP_TITLE"]
+PROP_ASSIGNEE = CONFIG["PROP_ASSIGNEE"]
+PROP_STATUS = CONFIG["PROP_STATUS"]
+PROP_DUE_DATE = CONFIG["PROP_DUE_DATE"]
+PROP_CUSTOMER = CONFIG["PROP_CUSTOMER"]
+PROP_TYPE = CONFIG["PROP_TYPE"]
+
+# Status values
+STATUS_DONE = CONFIG["STATUS_DONE"]
+STATUS_CANCELED = CONFIG["STATUS_CANCELED"]
+STATUS_NEW = CONFIG["STATUS_NEW"]
+
+# Type exclusion
+TYPE_EXCLUDE = CONFIG["TYPE_EXCLUDE"]
+
 # State file for tracking synced items (to detect deletions)
 STATE_FILE = Path(__file__).parent.resolve() / ".sync_state.json"
 
@@ -171,7 +200,7 @@ class NotionTask:
 
     @property
     def is_done(self) -> bool:
-        return self.status in ("Done", "Canceled")
+        return self.status in (STATUS_DONE, STATUS_CANCELED)
 
 
 @dataclass
@@ -244,37 +273,40 @@ class NotionClient:
         self._customer_cache: dict[str, str] = {}
 
     def query_my_tasks(self, database_id: str, user_id: str) -> list[NotionTask]:
-        """Query tasks assigned to user, not Done, Type ≠ Onboarding."""
+        """Query tasks assigned to user, not Done, optionally excluding a Type."""
         url = f"{self.BASE_URL}/databases/{database_id}/query"
 
-        filter_payload = {
-            "and": [
-                {
-                    "property": "Assignee",
-                    "people": {
-                        "contains": user_id
-                    }
-                },
-                {
-                    "property": "Status",
-                    "status": {
-                        "does_not_equal": "Done"
-                    }
-                },
-                {
-                    "property": "Status",
-                    "status": {
-                        "does_not_equal": "Canceled"
-                    }
-                },
-                {
-                    "property": "Type",
-                    "select": {
-                        "does_not_equal": "Onboarding"
-                    }
+        filter_conditions = [
+            {
+                "property": PROP_ASSIGNEE,
+                "people": {
+                    "contains": user_id
                 }
-            ]
-        }
+            },
+            {
+                "property": PROP_STATUS,
+                "status": {
+                    "does_not_equal": STATUS_DONE
+                }
+            },
+            {
+                "property": PROP_STATUS,
+                "status": {
+                    "does_not_equal": STATUS_CANCELED
+                }
+            },
+        ]
+
+        # Only add type filter if TYPE_EXCLUDE is set
+        if TYPE_EXCLUDE:
+            filter_conditions.append({
+                "property": PROP_TYPE,
+                "select": {
+                    "does_not_equal": TYPE_EXCLUDE
+                }
+            })
+
+        filter_payload = {"and": filter_conditions}
 
         tasks = []
         has_more = True
@@ -305,14 +337,14 @@ class NotionClient:
             page_id = page["id"].replace("-", "")
             properties = page["properties"]
 
-            # Title (Request property)
-            title_prop = properties.get("Request", {})
+            # Title (configurable property name)
+            title_prop = properties.get(PROP_TITLE, {})
             title_items = title_prop.get("title", [])
             title = title_items[0]["plain_text"] if title_items else "Untitled"
 
             # Due date
             due_date = None
-            due_prop = properties.get("Due date", {})
+            due_prop = properties.get(PROP_DUE_DATE, {})
             date_obj = due_prop.get("date")
             if date_obj and date_obj.get("start"):
                 date_str = date_obj["start"]
@@ -325,8 +357,8 @@ class NotionClient:
                     )
 
             # Status
-            status_prop = properties.get("Status", {})
-            status = status_prop.get("status", {}).get("name", "New")
+            status_prop = properties.get(PROP_STATUS, {})
+            status = status_prop.get("status", {}).get("name", STATUS_NEW)
 
             # Last updated
             last_updated_str = properties.get("Last updated", {}).get(
@@ -338,7 +370,7 @@ class NotionClient:
 
             # Customer (relation)
             customer_name = None
-            customer_prop = properties.get("Customer", {})
+            customer_prop = properties.get(PROP_CUSTOMER, {})
             customer_relations = customer_prop.get("relation", [])
             if customer_relations:
                 customer_id = customer_relations[0].get("id")
@@ -398,7 +430,7 @@ class NotionClient:
 
         payload = {
             "properties": {
-                "Due date": {
+                PROP_DUE_DATE: {
                     "date": date_value
                 }
             }
@@ -418,7 +450,7 @@ class NotionClient:
 
         payload = {
             "properties": {
-                "Request": {
+                PROP_TITLE: {
                     "title": [
                         {
                             "type": "text",
@@ -443,8 +475,8 @@ class NotionClient:
 
         payload = {
             "properties": {
-                "Status": {
-                    "status": {"name": "Done"}
+                PROP_STATUS: {
+                    "status": {"name": STATUS_DONE}
                 }
             }
         }
@@ -463,8 +495,8 @@ class NotionClient:
 
         payload = {
             "properties": {
-                "Status": {
-                    "status": {"name": "Canceled"}
+                PROP_STATUS: {
+                    "status": {"name": STATUS_CANCELED}
                 }
             }
         }
@@ -492,7 +524,7 @@ class NotionClient:
             if page.get("archived", False):
                 return None
 
-            status_prop = page.get("properties", {}).get("Status", {})
+            status_prop = page.get("properties", {}).get(PROP_STATUS, {})
             return status_prop.get("status", {}).get("name")
         except Exception as e:
             print(f"Error getting task status for {page_id}: {e}")
@@ -509,7 +541,7 @@ class NotionClient:
         url = f"{self.BASE_URL}/pages"
 
         properties = {
-            "Request": {
+            PROP_TITLE: {
                 "title": [
                     {
                         "type": "text",
@@ -517,16 +549,16 @@ class NotionClient:
                     }
                 ]
             },
-            "Assignee": {
+            PROP_ASSIGNEE: {
                 "people": [{"id": user_id}]
             },
-            "Status": {
-                "status": {"name": "New"}
+            PROP_STATUS: {
+                "status": {"name": STATUS_NEW}
             },
         }
 
         if due_date:
-            properties["Due date"] = {
+            properties[PROP_DUE_DATE] = {
                 "date": {"start": due_date.strftime("%Y-%m-%d")}
             }
 
@@ -977,7 +1009,7 @@ class NotionRemindersSync:
             # Check current Notion status
             status = self.notion.get_task_status(notion_id)
 
-            if status == "Done":
+            if status == STATUS_DONE:
                 print(f"\n  Completing reminder (Notion marked Done): {reminder.title}")
 
                 if not self.dry_run:
@@ -986,7 +1018,7 @@ class NotionRemindersSync:
                 else:
                     self.stats["reminders_completed"] += 1
 
-            elif status == "Canceled":
+            elif status == STATUS_CANCELED:
                 print(f"\n  Deleting reminder (Notion marked Canceled): {reminder.title}")
 
                 if not self.dry_run:

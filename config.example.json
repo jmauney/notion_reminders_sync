@@ -3,5 +3,21 @@
   "NOTION_DATABASE_ID": "your_database_id_here",
   "NOTION_USER_ID": "your_user_id_here",
   "REMINDERS_LIST_NAME": "Work",
-  "NOTION_TAG": "#Notion"
+  "NOTION_TAG": "#Notion",
+
+  "_comment": "Property names below are optional - these are the defaults",
+  "PROP_TITLE": "Request",
+  "PROP_ASSIGNEE": "Assignee",
+  "PROP_STATUS": "Status",
+  "PROP_DUE_DATE": "Due date",
+  "PROP_CUSTOMER": "Customer",
+  "PROP_TYPE": "Type",
+
+  "_comment2": "Status values - customize if your database uses different names",
+  "STATUS_DONE": "Done",
+  "STATUS_CANCELED": "Canceled",
+  "STATUS_NEW": "New",
+
+  "_comment3": "Type value to exclude (set to empty string to disable filtering)",
+  "TYPE_EXCLUDE": "Onboarding"
 }

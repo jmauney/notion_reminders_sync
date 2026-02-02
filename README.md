@@ -19,16 +19,16 @@ Bidirectional sync between a Notion database and Apple Reminders on macOS.
 
 ### Notion Database Requirements
 
-Your Notion database must have these properties with **exact names**:
+Your Notion database needs these types of properties. The **default names** are shown below, but you can customize them in your config (see [Customizing Property Names](#customizing-property-names)).
 
-| Property Name | Type | Purpose |
-|---------------|------|---------|
-| `Request` | Title | The task name (this is the main title property) |
-| `Assignee` | Person | Who the task is assigned to |
-| `Status` | Status | Must include "Done" and "Canceled" as options |
-| `Due date` | Date | When the task is due |
-| `Customer` | Relation | (Optional) Links to a customer database |
-| `Type` | Select | (Optional) Tasks with Type = "Onboarding" are excluded |
+| Default Name | Type | Purpose | Required? |
+|--------------|------|---------|-----------|
+| `Request` | Title | The task name | Yes |
+| `Assignee` | Person | Who the task is assigned to | Yes |
+| `Status` | Status | Must include "Done" and "Canceled" options | Yes |
+| `Due date` | Date | When the task is due | Yes |
+| `Customer` | Relation | Links to a customer database | No |
+| `Type` | Select | Used to exclude certain task types | No |
 
 > **Note**: Property names are case-sensitive. "Due date" is not the same as "Due Date".
 
@@ -300,6 +300,74 @@ To find your user ID:
 ```bash
 python notion_reminders_sync.py whoami
 ```
+
+---
+
+## Customizing Property Names
+
+If your Notion database uses different property names, you can customize them in your `config.json`. Add any of these optional settings:
+
+```json
+{
+  "NOTION_API_KEY": "ntn_your_api_key_here",
+  "NOTION_DATABASE_ID": "your_database_id_here",
+  "NOTION_USER_ID": "your_user_id_here",
+  "REMINDERS_LIST_NAME": "Work",
+  "NOTION_TAG": "#Notion",
+
+  "PROP_TITLE": "Request",
+  "PROP_ASSIGNEE": "Assignee",
+  "PROP_STATUS": "Status",
+  "PROP_DUE_DATE": "Due date",
+  "PROP_CUSTOMER": "Customer",
+  "PROP_TYPE": "Type",
+
+  "STATUS_DONE": "Done",
+  "STATUS_CANCELED": "Canceled",
+  "STATUS_NEW": "New",
+
+  "TYPE_EXCLUDE": "Onboarding"
+}
+```
+
+### Property Name Options
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `PROP_TITLE` | `Request` | The title property of your tasks |
+| `PROP_ASSIGNEE` | `Assignee` | The person property for task assignment |
+| `PROP_STATUS` | `Status` | The status property |
+| `PROP_DUE_DATE` | `Due date` | The date property for due dates |
+| `PROP_CUSTOMER` | `Customer` | (Optional) Relation to customer database |
+| `PROP_TYPE` | `Type` | (Optional) Select property for task types |
+
+### Status Value Options
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `STATUS_DONE` | `Done` | Status value that marks a task complete |
+| `STATUS_CANCELED` | `Canceled` | Status value that marks a task canceled |
+| `STATUS_NEW` | `New` | Status value for newly created tasks |
+
+### Type Exclusion
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `TYPE_EXCLUDE` | `Onboarding` | Tasks with this Type value are ignored. Set to empty string `""` to disable filtering |
+
+**Example**: If your database uses "Task Name" instead of "Request" and "Completed" instead of "Done":
+
+```json
+{
+  "NOTION_API_KEY": "...",
+  "NOTION_DATABASE_ID": "...",
+  "NOTION_USER_ID": "...",
+  "PROP_TITLE": "Task Name",
+  "STATUS_DONE": "Completed"
+}
+```
+
+You only need to include settings that differ from the defaults.
 
 ---
 
