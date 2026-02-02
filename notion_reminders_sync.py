@@ -1099,8 +1099,12 @@ class NotionRemindersSync:
             notion_modified = notion_task.last_updated
             reminder_modified = reminder.last_modified
 
-            # Compare titles
-            title_changed = reminder.title != notion_task.title
+            # Strip #Notion tag from reminder title for comparison and sync
+            clean_reminder_title = re.sub(r'\s*#notion\b\s*', ' ', reminder.title, flags=re.IGNORECASE).strip()
+            clean_reminder_title = ' '.join(clean_reminder_title.split())  # Normalize whitespace
+
+            # Compare titles (using cleaned reminder title)
+            title_changed = clean_reminder_title != notion_task.title
 
             # Compare due dates (normalize to date only for comparison)
             notion_due = notion_task.due_date.date() if notion_task.due_date else None
@@ -1123,12 +1127,12 @@ class NotionRemindersSync:
                 reminder_is_newer = reminder_modified >= notion_modified
 
             if reminder_is_newer:
-                # Push Reminders -> Notion
+                # Push Reminders -> Notion (use cleaned title without #Notion tag)
                 if title_changed:
-                    print(f"\n  Updating Notion title: '{reminder.title}'")
+                    print(f"\n  Updating Notion title: '{clean_reminder_title}'")
                     print(f"    Was: '{notion_task.title}'")
                     if not self.dry_run:
-                        self.notion.update_task_title(notion_task.page_id, reminder.title)
+                        self.notion.update_task_title(notion_task.page_id, clean_reminder_title)
                     self.stats["notion_tasks_updated"] += 1
 
                 if due_changed:
@@ -1141,6 +1145,7 @@ class NotionRemindersSync:
                     self.stats["notion_tasks_updated"] += 1
             else:
                 # Push Notion -> Reminders (Notion is newer)
+                # Note: We don't add #Notion tag back - the reminder keeps its existing tag
                 if title_changed or due_changed:
                     print(f"\n  Updating Reminder (Notion is newer): {notion_task.title}")
 
@@ -1180,12 +1185,16 @@ class NotionRemindersSync:
     def _create_notion_from_reminders(self, unlinked_reminders: list[Reminder]):
         """Create Notion tasks from Reminders tagged with #Notion but having no URL."""
         for reminder in unlinked_reminders:
-            print(f"\n  Creating Notion task from reminder: {reminder.title}")
+            # Strip the #Notion tag from the title before creating in Notion
+            clean_title = re.sub(r'\s*#notion\b\s*', ' ', reminder.title, flags=re.IGNORECASE).strip()
+            clean_title = ' '.join(clean_title.split())  # Normalize whitespace
+
+            print(f"\n  Creating Notion task from reminder: {clean_title}")
 
             if not self.dry_run:
                 page_id = self.notion.create_task(
                     NOTION_DATABASE_ID,
-                    reminder.title,
+                    clean_title,
                     NOTION_USER_ID,
                     reminder.due_date,
                 )
