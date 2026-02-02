@@ -14,7 +14,7 @@ Bidirectional sync between a Notion database and Apple Reminders on macOS.
 ## Requirements
 
 - macOS (uses native Reminders via EventKit)
-- Python 3.9 or newer
+- Python 3.10 or newer (see Step 2 below to check/upgrade)
 - Notion integration with access to your database
 
 ### Notion Database Requirements
@@ -46,7 +46,7 @@ This guide assumes you're new to using Terminal. Follow each step carefully.
 
 ### Step 2: Check Your Python Version
 
-macOS comes with Python, but you need version 3.9 or newer.
+macOS comes with Python, but you need version 3.10 or newer. The default macOS Python (3.9.6) is too old.
 
 Type this command and press Enter:
 
@@ -54,11 +54,11 @@ Type this command and press Enter:
 python3 --version
 ```
 
-You should see something like `Python 3.11.5` or `Python 3.13.0`.
+You should see something like `Python 3.10.0`, `Python 3.11.5`, or `Python 3.13.0`.
 
-**If your version is 3.9 or higher**, skip to Step 3.
+**If your version is 3.10 or higher**, skip to Step 3.
 
-**If your version is lower than 3.9**, or you get an error, you need to install/update Python:
+**If your version is 3.9.x or lower** (common on macOS), you need to install a newer Python:
 
 #### Installing Python on macOS
 
