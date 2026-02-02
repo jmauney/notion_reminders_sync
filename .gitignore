@@ -15,6 +15,10 @@ config.json
 # Sync state (user-specific)
 .sync_state.json
 
+# Log files
+*.log
+sync.log
+
 # macOS
 .DS_Store
 
