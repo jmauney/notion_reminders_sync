@@ -73,10 +73,12 @@ The easiest way is using Homebrew (a package manager for macOS):
 
    Follow the prompts. You may need to enter your Mac password (you won't see it as you type - that's normal).
 
-2. **Install Python**:
+2. **Install Python 3.13** (recommended stable version):
    ```bash
    brew install python@3.13
    ```
+
+   > **Note**: Use Python 3.13, not 3.14. Python 3.14 is too new and some dependencies don't support it yet.
 
 3. **Verify it worked**:
    ```bash
