@@ -736,6 +736,11 @@ class RemindersClient:
             return None
 
         reminder = EventKit.EKReminder.reminderWithEventStore_(self.store)
+
+        # Add #Notion tag to title if requested (this is how we identify synced reminders)
+        if add_notion_tag:
+            title = f"{title} {NOTION_TAG}"
+
         reminder.setTitle_(title)
         reminder.setCalendar_(work_list)
 
@@ -748,12 +753,6 @@ class RemindersClient:
 
         if due_date:
             self._set_due_date(reminder, due_date)
-
-        # Add the Notion tag if requested
-        if add_notion_tag:
-            tag_name = NOTION_TAG.lstrip("#")  # Remove # if present
-            if hasattr(reminder, 'setHashtagTexts_'):
-                reminder.setHashtagTexts_([tag_name])
 
         error = None
         success = self.store.saveReminder_commit_error_(reminder, True, error)
