@@ -1212,6 +1212,101 @@ def cmd_sync(args):
     sync.run()
 
 
+def cmd_fix_urls(args):
+    """Fix reminders that have #Notion tag but are missing URLs.
+
+    This matches reminders to Notion tasks by title and adds the missing URLs.
+    Run this once if you have reminders that were created before URL tracking was added.
+    """
+    print("=" * 60)
+    print("Fix Missing URLs")
+    print("=" * 60)
+
+    if args.dry_run:
+        print("** DRY RUN MODE - No changes will be made **\n")
+
+    # Initialize clients
+    notion = NotionClient(CONFIG["NOTION_API_KEY"])
+    reminders_client = RemindersClient()
+
+    # Get all Notion tasks
+    print("Fetching Notion tasks...")
+    notion_tasks = notion.query_my_tasks(NOTION_DATABASE_ID, NOTION_USER_ID)
+    print(f"  Found {len(notion_tasks)} tasks assigned to you\n")
+
+    # Get all reminders with #Notion tag but no URL
+    print("Fetching reminders with #Notion tag but no URL...")
+    all_reminders = reminders_client.get_all_reminders()
+    missing_url = [r for r in all_reminders if r.has_notion_tag and not r.url and not r.completed]
+    print(f"  Found {len(missing_url)} reminders missing URLs\n")
+
+    if not missing_url:
+        print("All reminders already have URLs. Nothing to fix!")
+        return
+
+    # Build a lookup by normalized title
+    def normalize_title(title: str) -> str:
+        """Normalize title for matching - remove #Notion tag and extra whitespace."""
+        import re
+        # Remove #Notion tag (case insensitive)
+        title = re.sub(r'#notion\b', '', title, flags=re.IGNORECASE)
+        # Remove extra whitespace
+        title = ' '.join(title.split())
+        return title.strip().lower()
+
+    notion_by_title = {}
+    for task in notion_tasks:
+        normalized = normalize_title(task.title)
+        notion_by_title[normalized] = task
+
+    # Match and fix
+    fixed_count = 0
+    not_found = []
+
+    print("Matching reminders to Notion tasks...")
+    print("-" * 60)
+
+    for reminder in missing_url:
+        normalized = normalize_title(reminder.title)
+
+        if normalized in notion_by_title:
+            task = notion_by_title[normalized]
+            print(f"\n  Fixing: {reminder.title[:50]}")
+            print(f"    Adding URL: {task.url}")
+
+            if not args.dry_run:
+                # Set the URL on the reminder
+                ns_url = Foundation.NSURL.URLWithString_(task.url)
+                reminder.ek_reminder.setURL_(ns_url)
+
+                error = None
+                success = reminders_client.store.saveReminder_commit_error_(
+                    reminder.ek_reminder, True, error
+                )
+                if success:
+                    fixed_count += 1
+                else:
+                    print(f"    ERROR: Failed to save reminder")
+            else:
+                fixed_count += 1
+        else:
+            not_found.append(reminder.title)
+
+    print("\n" + "=" * 60)
+    print("Summary")
+    print("=" * 60)
+    print(f"  Reminders fixed: {fixed_count}")
+    print(f"  Not matched: {len(not_found)}")
+
+    if not_found:
+        print("\n  Reminders that couldn't be matched to Notion tasks:")
+        for title in not_found:
+            print(f"    - {title[:60]}")
+
+    if args.dry_run:
+        print("\n** DRY RUN - No changes were made. Run without --dry-run to apply fixes. **")
+
+
 def cmd_whoami(args):
     """Show current Notion user info to help find your user ID."""
     print("Fetching Notion user info...")
@@ -1300,10 +1395,23 @@ def main():
         help="Show Notion workspace users to find your user ID"
     )
 
+    # Fix URLs command
+    fix_urls_parser = subparsers.add_parser(
+        "fix-urls",
+        help="Fix reminders missing URLs by matching to Notion tasks"
+    )
+    fix_urls_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be done without making changes",
+    )
+
     args = parser.parse_args()
 
     if args.command == "whoami":
         cmd_whoami(args)
+    elif args.command == "fix-urls":
+        cmd_fix_urls(args)
     else:
         # Default to sync (works for both "sync" command and no command)
         cmd_sync(args)
