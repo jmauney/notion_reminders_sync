@@ -509,6 +509,31 @@ class NotionClient:
             print(f"Error getting task status for {page_id}: {e}")
             return None
 
+    def get_task_assignee_ids(self, page_id: str) -> Optional[list[str]]:
+        """Get the current assignee user IDs of a Notion task.
+
+        Returns a list of user ID strings (hyphens removed), or None if the
+        task doesn't exist or is archived.
+        """
+        url = f"{self.BASE_URL}/pages/{page_id}"
+
+        try:
+            response = self.session.get(url)
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            page = response.json()
+
+            if page.get("archived", False):
+                return None
+
+            assignee_prop = page.get("properties", {}).get(PROP_ASSIGNEE, {})
+            people = assignee_prop.get("people", [])
+            return [person["id"].replace("-", "") for person in people]
+        except Exception as e:
+            print(f"Error getting task assignees for {page_id}: {e}")
+            return None
+
     def create_task(
         self,
         database_id: str,
@@ -879,6 +904,7 @@ class NotionRemindersSync:
             "reminders_updated": 0,
             "reminders_completed": 0,
             "reminders_deleted": 0,
+            "reminders_reassigned": 0,
             "notion_tasks_created": 0,
             "notion_tasks_updated": 0,
             "notion_tasks_completed": 0,
@@ -960,6 +986,7 @@ class NotionRemindersSync:
         print(f"  Reminders updated:      {self.stats['reminders_updated']}")
         print(f"  Reminders completed:    {self.stats['reminders_completed']}")
         print(f"  Reminders deleted:      {self.stats['reminders_deleted']}")
+        print(f"  Reminders reassigned:   {self.stats['reminders_reassigned']}")
         print(f"  Notion tasks created:   {self.stats['notion_tasks_created']}")
         print(f"  Notion tasks updated:   {self.stats['notion_tasks_updated']}")
         print(f"  Notion tasks completed: {self.stats['notion_tasks_completed']}")
@@ -985,10 +1012,18 @@ class NotionRemindersSync:
 
             # Check if Notion task was truly deleted (not just filtered out)
             notion_deleted = False
+            reassigned = False
             if not notion_exists:
                 # Query Notion directly to see if it's deleted vs just Done/Canceled
                 status = self.notion.get_task_status(notion_id)
                 notion_deleted = (status is None)  # None means deleted/archived
+
+                # If the task still exists, check if it was reassigned away
+                if not notion_deleted and reminder_exists:
+                    assignee_ids = self.notion.get_task_assignee_ids(notion_id)
+                    if assignee_ids is not None:
+                        user_id = NOTION_USER_ID.replace("-", "")
+                        reassigned = user_id not in assignee_ids
 
             if not reminder_exists and notion_exists:
                 # Reminder was deleted -> cancel Notion task
@@ -1018,6 +1053,22 @@ class NotionRemindersSync:
                             del reminders_by_notion_id[notion_id]
                 else:
                     self.stats["reminders_deleted"] += 1
+
+            elif reminder_exists and reassigned:
+                # Task reassigned away from user -> delete the reminder
+                reminder = reminders_by_id[reminder_id]
+                print(f"\n  Deleting reminder (task reassigned): {reminder.title}")
+
+                if not self.dry_run:
+                    if self.reminders.delete_reminder(reminder):
+                        self.stats["reminders_reassigned"] += 1
+                        # Remove from state
+                        del previous_pairs[notion_id]
+                        # Remove from lookup maps
+                        if notion_id in reminders_by_notion_id:
+                            del reminders_by_notion_id[notion_id]
+                else:
+                    self.stats["reminders_reassigned"] += 1
 
     def _handle_notion_status_changes(
         self,
